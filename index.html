@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS現在地 ＋ 有吉さんマップ</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        /* 画面いっぱいに地図を表示する設定 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <script>
+        // 1. まずは日本全体が見えるくらいの初期位置で地図を準備
+        var map = L.map('map').setView([35.6812, 139.7671], 5);
+
+        // 2. 背景の地図画像（オープンストリートマップ）を読み込む
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // ==========================================
+        // ⭐【有吉さんのピン】（元の位置）
+        // ==========================================
+        var a_Marker = L.marker([35.6812, 139.7671]).addTo(map)
+            .bindPopup("🌟 有吉さんの位置");
+
+        // 自分のピンを管理する変数
+        var myMarker = null;
+
+        // 3. スマホのGPS情報を取得して追跡する関数
+        function track_my_gps() {
+            if (!navigator.geolocation) {
+                alert("お使いの端末はGPS機能に対応していません。");
+                return;
+            }
+
+            // watchPosition でリアルタイムに位置を追跡（移動するとピンも動く）
+            navigator.geolocation.watchPosition(function(position) {
+                var lat = position.coords.latitude;  // 緯度
+                var lng = position.coords.longitude; // 経度
+
+                // 古い現在地ピンを一度消す
+                if (myMarker !== null) {
+                    map.removeLayer(myMarker);
+                }
+
+                // 新しい現在地にピンを立てる
+                myMarker = L.marker([lat, lng]).addTo(map)
+                    .bindPopup("📍 自分の現在地").openPopup();
+
+                // 【自動ズーム調整】有吉さんと自分のピンが両方画面に収まるようにする
+                var group = new L.featureGroup([a_Marker, myMarker]);
+                map.fitBounds(group.getBounds().pad(0.1));
+
+            }, function(error) {
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        alert("位置情報の利用が拒否されました。ブラウザやスマホの設定で許可してください。");
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        alert("位置情報が取得できませんでした。");
+                        break;
+                    case error.TIMEOUT:
+                        alert("位置情報の取得がタイムアウトしました。");
+                        break;
+                }
+            }, {
+                enableHighAccuracy: true, // 高精度GPS
+                timeout: 10000,
+                maximumAge: 0
+            });
+        }
+
+        // 4. GPS追跡スタート
+        track_my_gps();
+    </script>
+
+</body>
+</html>
