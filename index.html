@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ロケ位置共有アプリ</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #map { height: 80vh; width: 100%; }
+        .controls { padding: 10px; text-align: center; }
+        button { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <button id="start-track">有吉さんの追跡を開始（送信側）</button>
+        <button id="stop-track">追跡を停止</button>
+    </div>
+    
+    <div id="map"></div>
+
+    <script type="module">
+        // Firebase SDK の読み込み
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+        // Firebaseの設定（あなたのプロジェクト専用の鍵）
+        const firebaseConfig = {
+            apiKey: "AIzaSyB5HRZQ94WeuPD6I-zCCeq03IPNtWv-Gms",
+            authDomain: "arikabe-9bf0e.firebaseapp.com",
+            projectId: "arikabe-9bf0e",
+            storageBucket: "arikabe-9bf0e.appspot.com",
+            messagingSenderId: "785870618875",
+            appId: "1:785870618875:web:d1d84a89849c3eb089305e"
+        };
+
+        // Firebaseの初期化
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 地図の初期化（最初は東京駅周辺を中心に表示）
+        const defaultPos = [35.681236, 139.767125];
+        const map = L.map('map').setView(defaultPos, 16);
+
+        // 地図の見た目（タイル）を設定
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // 有吉さん用のピン（マーカー）を作成して地図に配置
+        let marker = L.marker(defaultPos).addTo(map).bindPopup("有吉さんの位置").openPopup();
+        let watchId = null;
+
+        // 📥【受信側の処理】データベースの更新をリアルタイムに監視して地図を動かす
+        onSnapshot(doc(db, "locations", "ariyoshi"), (doc) => {
+            if (doc.exists()) {
+                const data = doc.data();
+                const newPos = [data.lat, data.lng];
+                
+                // ピンの位置を更新し、地図の中心をそこへ移動させる
+                marker.setLatLng(newPos);
+                map.setView(newPos);
+                console.log("位置更新を受信しました:", newPos);
+            }
+        });
+
+        // 📤【送信側の処理】GPS位置情報を取得してデータベースに書き込む
+        document.getElementById('start-track').addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                alert("お使いの端末は位置情報をサポートしていません");
+                return;
+            }
+
+            // 移動を検知するたびに自動でFirebaseへ送信
+            watchId = navigator.geolocation.watchPosition((position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+
+                // Firebaseの「locations/ariyoshi」に保存
+                setDoc(doc(db, "locations", "ariyoshi"), {
+                    lat: lat,
+                    lng: lng,
+                    timestamp: new Date()
+                }).then(() => console.log("位置情報を送信しました:", lat, lng));
+
+            }, (error) => {
+                console.error("GPSエラー:", error);
+            }, {
+                enableHighAccuracy: true, // 高精度GPSモード
+                maximumAge: 0,
+                timeout: 5000
+            });
+            alert("追跡（位置情報の送信）を開始しました！");
+        });
+
+        // 追跡停止ボタンの処理
+        document.getElementById('stop-track').addEventListener('click', () => {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+                alert("追跡を停止しました。");
+            }
+        });
+    </script>
+</body>
+</html>
