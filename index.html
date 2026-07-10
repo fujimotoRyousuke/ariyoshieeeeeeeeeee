@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リアルタイム位置共有マップ</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <script>
+        // 1. Firebaseの設定（送っていただいた画像から正確に抽出しました）
+        const firebaseConfig = {
+            apiKey: "AIzaSyDGE2-GbfD5vYPfNUc_sUXuooTlp9Zesog",
+            authDomain: "ariyoshieeeeeeeeeee.firebaseapp.com",
+            databaseURL: "https://ariyoshieeeeeeeeeee-default-rtdb.firebaseio.com",
+            projectId: "ariyoshieeeeeeeeeee",
+            storageBucket: "ariyoshieeeeeeeeeee.firebasestorage.app",
+            messagingSenderId: "121301225894",
+            appId: "1:121301225894:web:6a6b9b17725ce2d033bf67",
+            measurementId: "G-1CS0WGLT62"
+        };
+
+        // Firebaseの初期化
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const locationsRef = database.ref("user_locations");
+
+        // 2. 地図の初期化（日本中心）
+        var map = L.map('map').setView([35.6812, 139.7671], 5);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // 他のユーザーのピンを管理する辞書
+        var markers = {};
+
+        // 自分を識別するためのランダムなIDを作成（毎回変わります）
+        const myId = "user_" + Math.random().toString(36).substring(2, 9);
+
+        // 3. 自分のGPS位置情報を取得してFirebaseに送る
+        function startTracking() {
+            if (!navigator.geolocation) {
+                alert("GPS機能に対応していません。");
+                return;
+            }
+
+            navigator.geolocation.watchPosition(function(position) {
+                var lat = position.coords.latitude;
+                var lng = position.coords.longitude;
+
+                // 自分の位置情報をFirebaseに保存（10秒ごとに自動更新）
+                locationsRef.child(myId).set({
+                    lat: lat,
+                    lng: lng,
+                    timestamp: firebase.database.ServerValue.TIMESTAMP
+                });
+
+            }, function(error) {
+                console.error("GPSエラー:", error);
+            }, {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            });
+        }
+
+        // 4. Firebaseから全員の位置情報をリアルタイムに取得して地図に描画
+        locationsRef.on("value", function(snapshot) {
+            var data = snapshot.val();
+            if (!data) return;
+
+            var bounds = [];
+
+            // データベースにある全員分の位置をループ処理
+            Object.keys(data).forEach(function(userId) {
+                var userLocation = data[userId];
+                
+                // データの有効期限（3分以上更新がない古いデータは非表示にする）
+                var now = Date.now();
+                if (now - userLocation.timestamp > 180000) {
+                    // 古いピンが地図にあれば消す
+                    if (markers[userId]) {
+                        map.removeLayer(markers[userId]);
+                        delete markers[userId];
+                    }
+                    return;
+                }
+
+                var lat = userLocation.lat;
+                var lng = userLocation.lng;
+                bounds.push([lat, lng]);
+
+                // すでにピンがある場合は位置を更新、なければ新しく作る
+                if (markers[userId]) {
+                    markers[userId].setLatLng([lat, lng]);
+                } else {
+                    var popupText = (userId === myId) ? "📍 あなたの現在地" : "👥 メンバーの位置";
+                    markers[userId] = L.marker([lat, lng]).addTo(map).bindPopup(popupText);
+                    
+                    // 自分のが表示された時は最初だけポップアップを開く
+                    if (userId === myId) {
+                        markers[userId].openPopup();
+                    }
+                }
+            });
+
+            // 全員が画面に収まるように自動で地図の表示範囲を調整
+            if (bounds.length > 0) {
+                map.fitBounds(L.latLngBounds(bounds).pad(0.2));
+            }
+        });
+
+        // 追跡スタート
+        startTracking();
+    </script>
+
+</body>
+</html>
