@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リアルタイム位置共有マップ</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <script>
+        // 1. Firebaseの設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyDGE2-GbfD5vYPfNUc_sUXuooTlp9Zesog",
+            authDomain: "ariyoshieeeeeeeeeee.firebaseapp.com",
+            databaseURL: "https://ariyoshieeeeeeeeeee-default-rtdb.firebaseio.com",
+            projectId: "ariyoshieeeeeeeeeee",
+            storageBucket: "ariyoshieeeeeeeeeee.firebasestorage.app",
+            messagingSenderId: "121301225894",
+            appId: "1:121301225894:web:6a6b9b17725ce2d033bf67",
+            measurementId: "G-1CS0WGLT62"
+        };
+
+        // Firebaseの初期化
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const locationsRef = database.ref("user_locations");
+
+        // 2. 地図の初期化（最初は日本全体を表示）
+        var map = L.map('map').setView([35.6812, 139.7671], 5);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // メンバー全員のピンを管理する辞書
+        var markers = {};
+        var firstZoomDone = false; // 最初のズームが完了したかどうかのフラグ
+
+        // 自分を識別するためのランダムなIDを作成
+        const myId = "user_" + Math.random().toString(36).substring(2, 9);
+
+        // 3. 自分のGPS位置情報を取得して送信する関数
+        function startTracking() {
+            if (!navigator.geolocation) {
+                alert("お使いの端末はGPS機能に対応していません。");
+                return;
+            }
+
+            navigator.geolocation.watchPosition(function(position) {
+                var lat = position.coords.latitude;
+                var lng = position.coords.longitude;
+
+                // 【強化対策】Firebaseとの通信成否に関わらず、自分の端末上には即座にピンを立ててズームする
+                if (!firstZoomDone) {
+                    map.setView([lat, lng], 15); // 最初の一回は自分の位置に強制ズーム
+                    firstZoomDone = true;
+                }
+
+                if (markers[myId]) {
+                    markers[myId].setLatLng([lat, lng]);
+                } else {
+                    markers[myId] = L.marker([lat, lng]).addTo(map).bindPopup("📍 あなたの現在地").openPopup();
+                }
+
+                // Firebaseに送信（エラーが起きても無視して地図の動作を止めない処理を追加）
+                locationsRef.child(myId).set({
+                    lat: lat,
+                    lng: lng,
+                    timestamp: firebase.database.ServerValue.TIMESTAMP
+                }).catch(function(error) {
+                    console.log("Firebase送信制限中（ローカルで動作継続）:", error);
+                });
+
+            }, function(error) {
+                console.error("GPSエラー:", error);
+                alert("位置情報が取得できません。ブラウザの設定で位置情報を許可してください。");
+            }, {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            });
+        }
+
+        // 4. Firebaseから全員の位置情報をリアルタイムに取得して地図に描画
+        locationsRef.on("value", function(snapshot) {
+            var data = snapshot.val();
+            if (!data) return;
+
+            var bounds = [];
+
+            Object.keys(data).forEach(function(userId) {
+                // 自分自身のローカル処理はwatchPosition側で行うため、自分以外のユーザーを処理
+                if (userId === myId) {
+                    if (markers[myId]) {
+                        bounds.push(markers[myId].getLatLng());
+                    }
+                    return;
+                }
+
+                var userLocation = data[userId];
+                
+                // データの有効期限（3分以上更新がない古いデータは地図から消す）
+                var now = Date.now();
+                if (now - userLocation.timestamp > 180000) {
+                    if (markers[userId]) {
+                        map.removeLayer(markers[userId]);
+                        delete markers[userId];
+                    }
+                    return;
+                }
+
+                var lat = userLocation.lat;
+                var lng = userLocation.lng;
+                bounds.push([lat, lng]);
+
+                if (markers[userId]) {
+                    markers[userId].setLatLng([lat, lng]);
+                } else {
+                    markers[userId] = L.marker([lat, lng]).addTo(map).bindPopup("👥 メンバーの位置");
+                }
+            });
+
+            // 複数人いる場合は、全員が画面に収まるように自動調整
+            if (bounds.length > 1) {
+                map.fitBounds(L.latLngBounds(bounds).pad(0.2));
+            }
+        }, function(error) {
+            console.log("Firebase読み込み制限中:", error);
+        });
+
+        // 追跡スタート
+        startTracking();
+    </script>
+
+</body>
+</html>
